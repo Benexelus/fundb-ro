@@ -1,49 +1,115 @@
 import streamlit as st
-from tensorflow.keras.models import load_model
-from PIL import Image, ImageOps
 import numpy as np
+from keras.models import load_model
+from PIL import Image, ImageOps
+import os
+import json
 
-# Titel der App
-st.title("🔍 Fundbüro-Bilderkennung")
-st.write("Lade ein Bild hoch, um verlorene Gegenstände zu identifizieren.")
+# ------------------------
+# Einstellungen
+# ------------------------
 
-# Modell und Labels laden (mit Caching für Performance)
+MODEL_PATH = "kerasModel.h5"
+LABELS_PATH = "labels.txt"
+UPLOAD_FOLDER = "uploads"
+DB_FILE = "database.json"
+
+np.set_printoptions(suppress=True)
+
+# Ordner erstellen falls nicht vorhanden
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# ------------------------
+# Modell laden
+# ------------------------
+
 @st.cache_resource
-def load_model_and_labels():
-    model = load_model("keras_Model.h5", compile=False)
-    with open("labels.txt", "r") as f:
-        labels = [line.strip() for line in f.readlines()]
-    return model, labels
+def load_my_model():
+    model = load_model(MODEL_PATH, compile=False)
+    return model
 
-# Bild klassifizieren
-def classify_image(img, model, labels):
-    # Bild vorverarbeiten
+model = load_my_model()
+class_names = open(LABELS_PATH, "r").readlines()
+
+# ------------------------
+# Mini-Datenbank laden
+# ------------------------
+
+if not os.path.exists(DB_FILE):
+    with open(DB_FILE, "w") as f:
+        json.dump([], f)
+
+with open(DB_FILE, "r") as f:
+    database = json.load(f)
+
+# ------------------------
+# Vorhersage Funktion
+# ------------------------
+
+def predict_image(image):
+
     size = (224, 224)
-    img = ImageOps.fit(img, size, Image.Resampling.LANCZOS)
-    img_array = np.asarray(img)
-    normalized_img = (img_array.astype(np.float32) / 127.5) - 1
-    data = np.expand_dims(normalized_img, axis=0)
+    image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
     
-    # Vorhersage
+    image_array = np.asarray(image)
+    normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
+
+    data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
+    data[0] = normalized_image_array
+
     prediction = model.predict(data)
     index = np.argmax(prediction)
-    class_name = labels[index]
-    confidence = float(prediction[0][index])
-    return class_name, confidence
+    
+    class_name = class_names[index].strip()
+    confidence_score = float(prediction[0][index])
 
-# Hauptlogik
-model, labels = load_model_and_labels()
-uploaded_file = st.file_uploader("Bild hochladen...", type=["jpg", "png", "jpeg"])
+    return class_name, confidence_score
+
+# ------------------------
+# UI
+# ------------------------
+
+st.title("🧥 Fundbüro KI")
+st.write("Lade ein Bild hoch und die KI erkennt: Mütze, Hoodie, Hose oder Schuhe.")
+
+uploaded_file = st.file_uploader("Bild hochladen", type=["jpg", "jpeg", "png"])
 
 if uploaded_file is not None:
-    try:
-        image = Image.open(uploaded_file).convert("RGB")
-        st.image(image, caption="Hochgeladenes Bild", use_column_width=True)
-        
-        # Klassifizierung
-        class_name, confidence = classify_image(image, model, labels)
-        st.success(f"**Erkannt:** {class_name.split(' ')[1]} (Genauigkeit: {confidence:.1%})")
-        st.progress(confidence)
-        
-    except Exception as e:
-        st.error(f"Fehler: {e}")
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Hochgeladenes Bild", use_column_width=True)
+
+    if st.button("🔍 Klassifizieren"):
+        class_name, confidence = predict_image(image)
+
+        st.success(f"Erkannt: **{class_name}**")
+        st.write(f"Confidence: {round(confidence * 100, 2)} %")
+
+        # Bild speichern
+        file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
+        image.save(file_path)
+
+        # In Datenbank speichern
+        database.append({
+            "filename": uploaded_file.name,
+            "category": class_name,
+            "confidence": confidence
+        })
+
+        with open(DB_FILE, "w") as f:
+            json.dump(database, f)
+
+# ------------------------
+# Suchfunktion
+# ------------------------
+
+st.markdown("---")
+st.header("🔎 Bereits hochgeladene Bilder durchsuchen")
+
+categories = ["Alle", "Mütze", "Hoodie", "Hose", "Schuhe"]
+selected_category = st.selectbox("Kategorie auswählen", categories)
+
+for item in database:
+    if selected_category == "Alle" or item["category"] == selected_category:
+        image_path = os.path.join(UPLOAD_FOLDER, item["filename"])
+        if os.path.exists(image_path):
+            st.image(image_path, caption=f"{item['category']} ({round(item['confidence']*100,2)}%)", width=200)
