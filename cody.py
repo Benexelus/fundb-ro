@@ -9,7 +9,7 @@ import json
 # Einstellungen
 # ------------------------
 
-MODEL_PATH = "kerasModel.h5"
+MODEL_PATH = "kerasmodel.h5"
 LABELS_PATH = "labels.txt"
 UPLOAD_FOLDER = "uploads"
 DB_FILE = "database.json"
