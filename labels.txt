@@ -1,0 +1,4 @@
+0 mütze
+1 hose
+2 hoodie
+3 schuh
