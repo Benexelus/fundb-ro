@@ -1,6 +1,8 @@
 streamlit==1.32.0
-tensorflow-cpu==2.10.0  # Statt tensorflow (CPU-optimiert)
-keras==2.10.0           # Kompatibel mit TensorFlow 2.10.0
-Pillow==9.5.0           # Stabilere Version für Bildverarbeitung
-numpy==1.23.5           # Vermeidet Konflikte mit TensorFlow
-protobuf==3.20.3        # Kritisch für TensorFlow-Kompatibilität
+tensorflow-cpu==2.10.0
+keras==2.10.0
+Pillow==9.5.0
+numpy==1.23.5
+protobuf==3.20.3
+h5py==3.8.0  # Für das Laden des Keras-Modells (.h5)
+opencv-python-headless==4.7.0.72  # Falls Bildverarbeitung benötigt wird
