@@ -1,6 +1,6 @@
 streamlit==1.32.0
-tensorflow-cpu==2.12.0
-keras==2.12.0
-Pillow==10.1.0
-numpy==1.24.3
-protobuf==3.20.3  
+tensorflow-cpu==2.10.0  # Statt tensorflow (CPU-optimiert)
+keras==2.10.0           # Kompatibel mit TensorFlow 2.10.0
+Pillow==9.5.0           # Stabilere Version für Bildverarbeitung
+numpy==1.23.5           # Vermeidet Konflikte mit TensorFlow
+protobuf==3.20.3        # Kritisch für TensorFlow-Kompatibilität
