@@ -2,8 +2,8 @@ import streamlit as st
 import numpy as np
 from keras.models import load_model
 from PIL import Image, ImageOps
-import os
-import json
+from supabase import create_client
+import uuid
 
 # ------------------------
 # Einstellungen
@@ -11,13 +11,17 @@ import json
 
 MODEL_PATH = "keras_model.h5"
 LABELS_PATH = "labels.txt"
-UPLOAD_FOLDER = "uploads"
-DB_FILE = "database.json"
 
 np.set_printoptions(suppress=True)
 
-# Ordner erstellen falls nicht vorhanden
-os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+# ------------------------
+# Supabase Verbindung
+# ------------------------
+
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ------------------------
 # Modell laden
@@ -32,22 +36,10 @@ model = load_my_model()
 class_names = open(LABELS_PATH, "r").readlines()
 
 # ------------------------
-# Mini-Datenbank laden
-# ------------------------
-
-if not os.path.exists(DB_FILE):
-    with open(DB_FILE, "w") as f:
-        json.dump([], f)
-
-with open(DB_FILE, "r") as f:
-    database = json.load(f)
-
-# ------------------------
 # Vorhersage Funktion
 # ------------------------
 
 def predict_image(image):
-
     size = (224, 224)
     image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
     
@@ -84,19 +76,27 @@ if uploaded_file is not None:
         st.success(f"Erkannt: **{class_name}**")
         st.write(f"Confidence: {round(confidence * 100, 2)} %")
 
-        # Bild speichern
-        file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
-        image.save(file_path)
+        # Eindeutiger Dateiname
+        file_name = f"{uuid.uuid4()}.png"
 
-        # In Datenbank speichern
-        database.append({
-            "filename": uploaded_file.name,
+        # Bild als Bytes
+        image_bytes = uploaded_file.getvalue()
+
+        # 1️⃣ Upload in Supabase Storage
+        supabase.storage.from_("uploads").upload(
+            file_name,
+            image_bytes,
+            {"content-type": "image/png"}
+        )
+
+        # 2️⃣ Metadaten speichern
+        supabase.table("items").insert({
+            "filename": file_name,
             "category": class_name,
             "confidence": confidence
-        })
+        }).execute()
 
-        with open(DB_FILE, "w") as f:
-            json.dump(database, f)
+        st.success("Bild erfolgreich in Supabase gespeichert ✅")
 
 # ------------------------
 # Suchfunktion
@@ -108,8 +108,21 @@ st.header("🔎 Bereits hochgeladene Bilder durchsuchen")
 categories = ["Alle", "Mütze", "Hoodie", "Hose", "Schuhe"]
 selected_category = st.selectbox("Kategorie auswählen", categories)
 
-for item in database:
-    if selected_category == "Alle" or item["category"] == selected_category:
-        image_path = os.path.join(UPLOAD_FOLDER, item["filename"])
-        if os.path.exists(image_path):
-            st.image(image_path, caption=f"{item['category']} ({round(item['confidence']*100,2)}%)", width=200)
+if selected_category == "Alle":
+    response = supabase.table("items").select("*").execute()
+else:
+    response = supabase.table("items")\
+        .select("*")\
+        .eq("category", selected_category)\
+        .execute()
+
+items = response.data
+
+for item in items:
+    image_url = supabase.storage.from_("uploads").get_public_url(item["filename"])
+    
+    st.image(
+        image_url,
+        caption=f"{item['category']} ({round(item['confidence']*100,2)}%)",
+        width=200
+    )
