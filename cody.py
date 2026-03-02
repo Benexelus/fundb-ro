@@ -182,3 +182,32 @@ if response.data:
             caption=f"(Cloud) {item['category']} ({round(item['confidence']*100,2)}%)",
             width=200
         )
+
+# ------------------------
+# NEU: Funktion zum Speichern hochgeladener Bilder
+# ------------------------
+
+def save_uploaded_image(uploaded_file):
+    """
+    Speichert das hochgeladene Bild im UPLOAD_FOLDER.
+    Falls Datei bereits existiert, wird ein eindeutiger Name erzeugt.
+    """
+    if uploaded_file is None:
+        return None
+
+    filename = uploaded_file.name
+    file_path = os.path.join(UPLOAD_FOLDER, filename)
+
+    # Falls Datei schon existiert → neuen Namen generieren
+    if os.path.exists(file_path):
+        name, ext = os.path.splitext(filename)
+        counter = 1
+        while os.path.exists(file_path):
+            filename = f"{name}_{counter}{ext}"
+            file_path = os.path.join(UPLOAD_FOLDER, filename)
+            counter += 1
+
+    with open(file_path, "wb") as f:
+        f.write(uploaded_file.getbuffer())
+
+    return filename
