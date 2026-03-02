@@ -2,6 +2,12 @@ import streamlit as st
 import numpy as np
 from keras.models import load_model
 from PIL import Image, ImageOps
+import os
+import json
+
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+# >>> NEU: Supabase Import
+# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
 from supabase import create_client
 import uuid
 
@@ -11,11 +17,16 @@ import uuid
 
 MODEL_PATH = "keras_model.h5"
 LABELS_PATH = "labels.txt"
+UPLOAD_FOLDER = "uploads"
+DB_FILE = "database.json"
 
 np.set_printoptions(suppress=True)
 
+# Ordner erstellen falls nicht vorhanden
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
 # ------------------------
-# Supabase Verbindung
+# >>> NEU: Supabase Verbindung
 # ------------------------
 
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
@@ -36,10 +47,22 @@ model = load_my_model()
 class_names = open(LABELS_PATH, "r").readlines()
 
 # ------------------------
+# Mini-Datenbank laden (LOKAL bleibt bestehen)
+# ------------------------
+
+if not os.path.exists(DB_FILE):
+    with open(DB_FILE, "w") as f:
+        json.dump([], f)
+
+with open(DB_FILE, "r") as f:
+    database = json.load(f)
+
+# ------------------------
 # Vorhersage Funktion
 # ------------------------
 
 def predict_image(image):
+
     size = (224, 224)
     image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
     
@@ -76,27 +99,44 @@ if uploaded_file is not None:
         st.success(f"Erkannt: **{class_name}**")
         st.write(f"Confidence: {round(confidence * 100, 2)} %")
 
-        # Eindeutiger Dateiname
-        file_name = f"{uuid.uuid4()}.png"
+        # ------------------------
+        # LOKAL speichern (ALT)
+        # ------------------------
 
-        # Bild als Bytes
+        file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
+        image.save(file_path)
+
+        database.append({
+            "filename": uploaded_file.name,
+            "category": class_name,
+            "confidence": confidence
+        })
+
+        with open(DB_FILE, "w") as f:
+            json.dump(database, f)
+
+        # ------------------------
+        # >>> NEU: Zusätzlich in Supabase speichern
+        # ------------------------
+
+        unique_name = f"{uuid.uuid4()}.png"
         image_bytes = uploaded_file.getvalue()
 
-        # 1️⃣ Upload in Supabase Storage
+        # Upload zu Supabase Storage
         supabase.storage.from_("uploads").upload(
-            file_name,
+            unique_name,
             image_bytes,
             {"content-type": "image/png"}
         )
 
-        # 2️⃣ Metadaten speichern
+        # Metadaten speichern
         supabase.table("items").insert({
-            "filename": file_name,
+            "filename": unique_name,
             "category": class_name,
             "confidence": confidence
         }).execute()
 
-        st.success("Bild erfolgreich in Supabase gespeichert ✅")
+        st.success("Zusätzlich in Supabase gespeichert ✅")
 
 # ------------------------
 # Suchfunktion
@@ -108,6 +148,24 @@ st.header("🔎 Bereits hochgeladene Bilder durchsuchen")
 categories = ["Alle", "Mütze", "Hoodie", "Hose", "Schuhe"]
 selected_category = st.selectbox("Kategorie auswählen", categories)
 
+# ------------------------
+# LOKALE Bilder anzeigen (ALT)
+# ------------------------
+
+for item in database:
+    if selected_category == "Alle" or item["category"] == selected_category:
+        image_path = os.path.join(UPLOAD_FOLDER, item["filename"])
+        if os.path.exists(image_path):
+            st.image(
+                image_path,
+                caption=f"(Lokal) {item['category']} ({round(item['confidence']*100,2)}%)",
+                width=200
+            )
+
+# ------------------------
+# >>> NEU: Supabase Bilder anzeigen
+# ------------------------
+
 if selected_category == "Alle":
     response = supabase.table("items").select("*").execute()
 else:
@@ -116,13 +174,11 @@ else:
         .eq("category", selected_category)\
         .execute()
 
-items = response.data
-
-for item in items:
-    image_url = supabase.storage.from_("uploads").get_public_url(item["filename"])
-    
-    st.image(
-        image_url,
-        caption=f"{item['category']} ({round(item['confidence']*100,2)}%)",
-        width=200
-    )
+if response.data:
+    for item in response.data:
+        public_url = supabase.storage.from_("uploads").get_public_url(item["filename"])
+        st.image(
+            public_url,
+            caption=f"(Cloud) {item['category']} ({round(item['confidence']*100,2)}%)",
+            width=200
+        )
