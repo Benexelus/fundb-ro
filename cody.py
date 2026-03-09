@@ -28,9 +28,9 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ------------------------
 # >>> NEU: Supabase Verbindung
 # ------------------------
+SUPABASE_URL = "https://gbbwzeuhtjxxjiyzkpig.supabase.co"
 
-SUPABASE_URL = st.secrets["SUPABASE_URL"]
-SUPABASE_KEY = st.secrets["SUPABASE_KEY"]
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdiYnd6ZXVodGp4eGppeXprcGlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTU5ODYsImV4cCI6MjA4ODAzMTk4Nn0.IuaU1dd1_Xu7ZTd5l2FEdUSBigOWoLOky7h4HhAA_JE"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
