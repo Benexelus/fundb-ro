@@ -122,16 +122,23 @@ if uploaded_file is not None:
         unique_name = f"{uuid.uuid4()}.png"
         image_bytes = uploaded_file.getvalue()
 
-        # Upload zu Supabase Storage
-        supabase.storage.from_("uploads").upload(
-            unique_name,
-            image_bytes,
-            {"content-type": "image/png"}
+        # >>> NEU: Kategorie Ordner
+        category_folder = class_name.lower().replace("ü", "ue")
+
+        # >>> NEU: Speicherpfad
+        storage_path = f"{category_folder}/{unique_name}"
+
+        # >>> NEU: Upload zu Supabase Storage
+        supabase.storage.from_("bilder").upload(
+            path=storage_path,
+            file=image_bytes,
+            file_options={"content-type": "image/png"}
         )
 
-        # Metadaten speichern
+        # >>> NEU: Metadaten speichern
         supabase.table("items").insert({
             "filename": unique_name,
+            "path": storage_path,
             "category": class_name,
             "confidence": confidence
         }).execute()
@@ -176,7 +183,7 @@ else:
 
 if response.data:
     for item in response.data:
-        public_url = supabase.storage.from_("uploads").get_public_url(item["filename"])
+        public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
         st.image(
             public_url,
             caption=f"(Cloud) {item['category']} ({round(item['confidence']*100,2)}%)",
@@ -188,17 +195,13 @@ if response.data:
 # ------------------------
 
 def save_uploaded_image(uploaded_file):
-    """
-    Speichert das hochgeladene Bild im UPLOAD_FOLDER.
-    Falls Datei bereits existiert, wird ein eindeutiger Name erzeugt.
-    """
+
     if uploaded_file is None:
         return None
 
     filename = uploaded_file.name
     file_path = os.path.join(UPLOAD_FOLDER, filename)
 
-    # Falls Datei schon existiert → neuen Namen generieren
     if os.path.exists(file_path):
         name, ext = os.path.splitext(filename)
         counter = 1
