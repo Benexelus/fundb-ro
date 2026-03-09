@@ -152,7 +152,7 @@ if uploaded_file is not None:
 st.markdown("---")
 st.header("🔎 Bereits hochgeladene Bilder durchsuchen")
 
-categories = ["Alle", "Mütze", "Hoodie", "Hose", "Schuhe"]
+categories = ["Alle", "0 mütze", "2 hoodie", "1 hose", "3 schuh"]
 selected_category = st.selectbox("Kategorie auswählen", categories)
 
 # ------------------------
