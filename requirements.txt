@@ -3,8 +3,11 @@ numpy==1.26.4
 tensorflow==2.15.0
 keras==2.15.0
 pillow==10.2.0
+
 supabase==2.3.4
 gotrue==2.4.2
 postgrest==0.13.2
 storage3==0.7.4
 realtime==1.0.6
+
+python-dotenv==1.0.1
