@@ -4,12 +4,10 @@ from keras.models import load_model
 from PIL import Image, ImageOps
 import os
 import json
-
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-# >>> NEU: Supabase Import
-# >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
-from supabase import create_client
 import uuid
+import hashlib
+
+from supabase import create_client
 
 # ------------------------
 # Einstellungen
@@ -22,17 +20,27 @@ DB_FILE = "database.json"
 
 np.set_printoptions(suppress=True)
 
-# Ordner erstellen falls nicht vorhanden
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 # ------------------------
-# >>> NEU: Supabase Verbindung
+# Supabase Verbindung
 # ------------------------
-SUPABASE_URL = "https://gbbwzeuhtjxxjiyzkpig.supabase.co"
 
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdiYnd6ZXVodGp4eGppeXprcGlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTU5ODYsImV4cCI6MjA4ODAzMTk4Nn0.IuaU1dd1_Xu7ZTd5l2FEdUSBigOWoLOky7h4HhAA_JE"
+SUPABASE_URL = "https://gbbwzeuhtjxxjiyzkpig.supabase.co"
+SUPABASE_KEY = "YOUR_SUPABASE_KEY"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+# ------------------------
+# Kategorien Mapping
+# ------------------------
+
+category_map = {
+    "0 mütze": "Mütze",
+    "1 hose": "Hose",
+    "2 hoodie": "Hoodie",
+    "3 schuh": "Schuhe"
+}
 
 # ------------------------
 # Modell laden
@@ -44,10 +52,11 @@ def load_my_model():
     return model
 
 model = load_my_model()
+
 class_names = open(LABELS_PATH, "r").readlines()
 
 # ------------------------
-# Mini-Datenbank laden (LOKAL bleibt bestehen)
+# Datenbank laden
 # ------------------------
 
 if not os.path.exists(DB_FILE):
@@ -58,14 +67,21 @@ with open(DB_FILE, "r") as f:
     database = json.load(f)
 
 # ------------------------
-# Vorhersage Funktion
+# Bild Hash Funktion
+# ------------------------
+
+def get_image_hash(image_bytes):
+    return hashlib.md5(image_bytes).hexdigest()
+
+# ------------------------
+# KI Vorhersage
 # ------------------------
 
 def predict_image(image):
 
     size = (224, 224)
     image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
-    
+
     image_array = np.asarray(image)
     normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
 
@@ -73,144 +89,173 @@ def predict_image(image):
     data[0] = normalized_image_array
 
     prediction = model.predict(data)
+
     index = np.argmax(prediction)
-    
-    class_name = class_names[index].strip()
-    confidence_score = float(prediction[0][index])
 
-    return class_name, confidence_score
+    raw_class = class_names[index].strip()
+
+    class_name = category_map.get(raw_class, raw_class)
+
+    confidence = float(prediction[0][index])
+
+    return class_name, confidence
 
 # ------------------------
-# UI
+# Navigation
 # ------------------------
+
+st.sidebar.title("Navigation")
+
+page = st.sidebar.radio(
+    "Seite auswählen",
+    ["Bild hochladen", "Bild suchen", "Galerie"]
+)
 
 st.title("🧥 Fundbüro KI")
-st.write("Lade ein Bild hoch und die KI erkennt: Mütze, Hoodie, Hose oder Schuhe.")
-
-uploaded_file = st.file_uploader("Bild hochladen", type=["jpg", "jpeg", "png"])
-
-if uploaded_file is not None:
-    image = Image.open(uploaded_file).convert("RGB")
-    st.image(image, caption="Hochgeladenes Bild", use_column_width=True)
-
-    if st.button("🔍 Klassifizieren"):
-        class_name, confidence = predict_image(image)
-
-        st.success(f"Erkannt: **{class_name}**")
-        st.write(f"Confidence: {round(confidence * 100, 2)} %")
-
-        # ------------------------
-        # LOKAL speichern (ALT)
-        # ------------------------
-
-        file_path = os.path.join(UPLOAD_FOLDER, uploaded_file.name)
-        image.save(file_path)
-
-        database.append({
-            "filename": uploaded_file.name,
-            "category": class_name,
-            "confidence": confidence
-        })
-
-        with open(DB_FILE, "w") as f:
-            json.dump(database, f)
-
-        # ------------------------
-        # >>> NEU: Zusätzlich in Supabase speichern
-        # ------------------------
-
-        unique_name = f"{uuid.uuid4()}.png"
-        image_bytes = uploaded_file.getvalue()
-
-        # >>> NEU: Kategorie Ordner
-        category_folder = class_name.lower().replace("ü", "ue")
-
-        # >>> NEU: Speicherpfad
-        storage_path = f"{category_folder}/{unique_name}"
-
-        # >>> NEU: Upload zu Supabase Storage
-        supabase.storage.from_("bilder").upload(
-            path=storage_path,
-            file=image_bytes,
-            file_options={"content-type": "image/png"}
-        )
-
-        # >>> NEU: Metadaten speichern
-        supabase.table("items").insert({
-            "filename": unique_name,
-            "path": storage_path,
-            "category": class_name,
-            "confidence": confidence
-        }).execute()
-
-        st.success("Zusätzlich in Supabase gespeichert ✅")
 
 # ------------------------
-# Suchfunktion
+# BILD HOCHLADEN
 # ------------------------
 
-st.markdown("---")
-st.header("🔎 Bereits hochgeladene Bilder durchsuchen")
+if page == "Bild hochladen":
 
-categories = ["Alle", "0 mütze", "2 hoodie", "1 hose", "3 schuh"]
-selected_category = st.selectbox("Kategorie auswählen", categories)
+    st.header("📤 Bild hochladen")
 
-# ------------------------
-# LOKALE Bilder anzeigen (ALT)
-# ------------------------
+    uploaded_file = st.file_uploader(
+        "Bild auswählen",
+        type=["jpg", "jpeg", "png"]
+    )
 
-for item in database:
-    if selected_category == "Alle" or item["category"] == selected_category:
-        image_path = os.path.join(UPLOAD_FOLDER, item["filename"])
-        if os.path.exists(image_path):
-            st.image(
-                image_path,
-                caption=f"(Lokal) {item['category']} ({round(item['confidence']*100,2)}%)",
-                width=200
+    if uploaded_file:
+
+        image = Image.open(uploaded_file).convert("RGB")
+        st.image(image, width=300)
+
+        if st.button("Klassifizieren"):
+
+            image_bytes = uploaded_file.getvalue()
+
+            image_hash = get_image_hash(image_bytes)
+
+            # ------------------------
+            # DUPLIKATE PRÜFEN
+            # ------------------------
+
+            for item in database:
+                if item["hash"] == image_hash:
+                    st.error("❌ Dieses Bild wurde bereits hochgeladen.")
+                    st.stop()
+
+            # ------------------------
+            # KI Analyse
+            # ------------------------
+
+            class_name, confidence = predict_image(image)
+
+            st.success(f"Erkannt: {class_name}")
+            st.write(f"Confidence: {round(confidence * 100, 2)} %")
+
+            # ------------------------
+            # Datei speichern
+            # ------------------------
+
+            unique_name = f"{uuid.uuid4()}.png"
+
+            file_path = os.path.join(UPLOAD_FOLDER, unique_name)
+
+            image.save(file_path)
+
+            # ------------------------
+            # Lokale DB
+            # ------------------------
+
+            entry = {
+                "filename": unique_name,
+                "category": class_name,
+                "confidence": confidence,
+                "hash": image_hash
+            }
+
+            database.append(entry)
+
+            with open(DB_FILE, "w") as f:
+                json.dump(database, f)
+
+            # ------------------------
+            # Supabase Upload
+            # ------------------------
+
+            category_folder = class_name.lower()
+
+            storage_path = f"{category_folder}/{unique_name}"
+
+            supabase.storage.from_("bilder").upload(
+                storage_path,
+                image_bytes,
+                {"content-type": "image/png"}
             )
 
+            supabase.table("items").insert({
+                "filename": unique_name,
+                "path": storage_path,
+                "category": class_name,
+                "confidence": confidence
+            }).execute()
+
+            st.success("Bild erfolgreich gespeichert ✅")
+
 # ------------------------
-# >>> NEU: Supabase Bilder anzeigen
+# BILD SUCHEN
 # ------------------------
 
-if selected_category == "Alle":
+elif page == "Bild suchen":
+
+    st.header("🔎 Bilder durchsuchen")
+
+    categories = ["Alle", "Mütze", "Hose", "Hoodie", "Schuhe"]
+
+    selected = st.selectbox("Kategorie auswählen", categories)
+
+    for item in database:
+
+        if selected == "Alle" or item["category"] == selected:
+
+            image_path = os.path.join(UPLOAD_FOLDER, item["filename"])
+
+            if os.path.exists(image_path):
+
+                st.image(
+                    image_path,
+                    caption=f"{item['category']} ({round(item['confidence']*100,2)}%)",
+                    width=200
+                )
+
+# ------------------------
+# GALERIE
+# ------------------------
+
+elif page == "Galerie":
+
+    st.header("🖼️ Galerie")
+
     response = supabase.table("items").select("*").execute()
-else:
-    response = supabase.table("items")\
-        .select("*")\
-        .eq("category", selected_category)\
-        .execute()
 
-if response.data:
-    for item in response.data:
-        public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
-        st.image(
-            public_url,
-            caption=f"(Cloud) {item['category']} ({round(item['confidence']*100,2)}%)",
-            width=200
-        )
+    if response.data:
 
-# ------------------------
-# NEU: Funktion zum Speichern hochgeladener Bilder
-# ------------------------
+        cols = st.columns(3)
 
-def save_uploaded_image(uploaded_file):
+        i = 0
 
-    if uploaded_file is None:
-        return None
+        for item in response.data:
 
-    filename = uploaded_file.name
-    file_path = os.path.join(UPLOAD_FOLDER, filename)
+            public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
 
-    if os.path.exists(file_path):
-        name, ext = os.path.splitext(filename)
-        counter = 1
-        while os.path.exists(file_path):
-            filename = f"{name}_{counter}{ext}"
-            file_path = os.path.join(UPLOAD_FOLDER, filename)
-            counter += 1
+            with cols[i % 3]:
 
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+                st.image(
+                    public_url,
+                    caption=item["category"],
+                    use_column_width=True
+                )
 
-    return filename
+            i += 1
