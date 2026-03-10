@@ -103,7 +103,7 @@ if page=="Bild hochladen":
         image = Image.open(uploaded).convert("RGB")
         st.image(image, width=300)
 
-        finder_name = st.text_input("Dein Name")
+        finder_name = st.text_input("Dein Name / Initialen")
         location = st.text_input("Ort / Stadt")
         fundort = st.text_input("Fundort")
         found_at = st.date_input("Datum des Fundes", datetime.today())
@@ -153,7 +153,7 @@ if page=="Bild hochladen":
                 json.dump(database,f)
 
             # Supabase speichern
-            storage_path = f"{class_name.lower()}/{unique_name}"
+            storage_path = f"{class_name}/{unique_name}"  # nur Kategorie ohne Zahl
             try:
                 supabase.storage.from_("bilder").upload(storage_path, image_bytes, {"content-type":"image/png"})
                 supabase.table("items").insert({
@@ -183,7 +183,9 @@ elif page=="Bild suchen":
         if selected=="Alle" or item["category"]==selected:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
-                st.image(path, caption=f"{item['category']} ({round(item['confidence']*100,2)}%)", width=200)
+                if st.button(item["filename"]):
+                    st.image(path, width=300)
+                    st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
 
     # Supabase Bilder
     try:
@@ -192,7 +194,9 @@ elif page=="Bild suchen":
             for item in resp.data:
                 if selected=="Alle" or item["category"]==selected:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
-                    st.image(url, caption=f"{item['category']} ({round(item['confidence']*100,2)}%)", width=200)
+                    if st.button(item["filename"] + " (Cloud)"):
+                        st.image(url, width=300)
+                        st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
     except:
         st.warning("Supabase Bilder konnten nicht geladen werden")
 
@@ -205,14 +209,19 @@ elif page=="Galerie":
     cols = st.columns(3)
     i=0
 
+    # Lokale Bilder
     for item in database:
         if gallery_cat=="Alle" or item["category"]==gallery_cat:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
                 with cols[i%3]:
+                    if st.button(item["filename"]):
+                        st.image(path, width=300)
+                        st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
                     st.image(path, caption=item["category"], use_column_width=True)
                 i+=1
 
+    # Supabase Bilder
     try:
         resp = supabase.table("items").select("*").execute()
         if resp.data:
@@ -220,6 +229,9 @@ elif page=="Galerie":
                 if gallery_cat=="Alle" or item["category"]==gallery_cat:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
                     with cols[i%3]:
+                        if st.button(item["filename"] + " (Cloud)"):
+                            st.image(url, width=300)
+                            st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
                         st.image(url, caption=item["category"], use_column_width=True)
                     i+=1
     except:
@@ -240,16 +252,16 @@ elif page=="⚙️ Einstellungen":
                     st.image(path, width=200)
             with col2:
                 if st.button("🗑 Löschen", key=item["filename"]):
-                    # 1️⃣ Lokal
+                    # Lokal löschen
                     try: os.remove(path)
                     except: pass
-                    # 2️⃣ Supabase Storage
+                    # Supabase Storage löschen
                     try: supabase.storage.from_("bilder").remove([item["path"]])
                     except: pass
-                    # 3️⃣ Supabase Table
+                    # Supabase Table löschen
                     try: supabase.table("items").delete().eq("filename",item["filename"]).execute()
                     except: pass
-                    # 4️⃣ Lokale DB
+                    # Lokale DB löschen
                     database.remove(item)
                     with open(DB_FILE,"w") as f: json.dump(database,f)
                     st.success(f"{item['filename']} gelöscht ✅")
