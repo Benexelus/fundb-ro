@@ -27,7 +27,7 @@ np.set_printoptions(suppress=True)
 # Supabase Verbindung
 # ------------------------
 SUPABASE_URL = "https://gbbwzeuhtjxxjiyzkpig.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdiYnd6ZXVodGp4eGppeXprcGlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTU5ODYsImV4cCI6MjA4ODAzMTk4Nn0.IuaU1dd1_Xu7ZTd5l2FEdUSBigOWoLOky7h4HhAA_JE"
+SUPABASE_KEY = "YOUR_SUPABASE_KEY"  # bitte ersetzen
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ------------------------
@@ -56,19 +56,15 @@ class_names = [line.strip() for line in open(LABELS_PATH)]
 if not os.path.exists(DB_FILE):
     with open(DB_FILE, "w") as f:
         json.dump([], f)
-
 with open(DB_FILE, "r") as f:
     database = json.load(f)
 
 # ------------------------
-# Hash Funktion
+# Hilfsfunktionen
 # ------------------------
 def get_hash(data_bytes):
     return hashlib.md5(data_bytes).hexdigest()
 
-# ------------------------
-# KI Vorhersage
-# ------------------------
 def predict_image(image):
     size = (224, 224)
     image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
@@ -91,7 +87,6 @@ page = st.sidebar.radio(
     "Seite auswählen",
     ["Bild hochladen", "Bild suchen", "Galerie", "⚙️ Einstellungen"]
 )
-
 st.title("🧥 Fundbüro KI")
 
 # ------------------------
@@ -113,13 +108,13 @@ if page=="Bild hochladen":
             img_hash = get_hash(image_bytes)
 
             # Duplikat prüfen
-            duplicate = any(item.get("hash")==img_hash for item in database)
+            duplicate_local = any(item.get("hash")==img_hash for item in database)
+            duplicate_cloud = False
             try:
                 resp = supabase.table("items").select("filename").eq("hash", img_hash).execute()
-                if resp.data: duplicate=True
+                if resp.data: duplicate_cloud = True
             except: pass
-
-            if duplicate:
+            if duplicate_local or duplicate_cloud:
                 st.error("❌ Dieses Bild wurde bereits hochgeladen.")
                 st.stop()
 
@@ -127,17 +122,15 @@ if page=="Bild hochladen":
             class_name, confidence = predict_image(image)
             st.write("Erkannt:", class_name)
             st.write("Confidence:", round(confidence*100,2), "%")
-
             if confidence < MIN_CONFIDENCE:
                 st.error("❌ KI ist sich nicht sicher genug (<85%).")
                 st.stop()
 
-            st.success("✅ Bild wird gespeichert")
+            # Speicherung
             unique_name = f"{uuid.uuid4()}.png"
             local_path = os.path.join(UPLOAD_FOLDER, unique_name)
             image.save(local_path)
 
-            # Lokale DB speichern
             entry = {
                 "filename": unique_name,
                 "category": class_name,
@@ -149,10 +142,9 @@ if page=="Bild hochladen":
                 "found_at": str(found_at)
             }
             database.append(entry)
-            with open(DB_FILE,"w") as f:
-                json.dump(database,f)
+            with open(DB_FILE,"w") as f: json.dump(database,f)
 
-            # Supabase speichern
+            # Supabase Upload
             storage_path = f"{class_name}/{unique_name}"
             try:
                 supabase.storage.from_("bilder").upload(storage_path, BytesIO(image_bytes), {"content-type":"image/png"})
@@ -167,9 +159,9 @@ if page=="Bild hochladen":
                     "fundort": fundort,
                     "found_at": str(found_at)
                 }).execute()
+                st.success("✅ Bild erfolgreich hochgeladen")
             except Exception as e:
-                st.warning(f"Supabase Upload fehlgeschlagen: {e}")
-            st.success("✅ Bild erfolgreich gespeichert")
+                st.error(f"Supabase Upload fehlgeschlagen: {e}")
 
 # ------------------------
 # 2️⃣ Bild suchen
@@ -177,13 +169,12 @@ if page=="Bild hochladen":
 elif page=="Bild suchen":
     categories = ["Alle","Mütze","Hose","Hoodie","Schuhe"]
     selected = st.selectbox("Kategorie", categories)
-
     st.subheader("Lokale Bilder")
     for idx,item in enumerate(database):
         if selected=="Alle" or item["category"]==selected:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
-                if st.button(f"{item['filename']}_local_{idx}"):
+                if st.button(f"Bild_{idx}"):
                     st.image(path, width=300)
                     st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
 
@@ -194,11 +185,11 @@ elif page=="Bild suchen":
             for idx,item in enumerate(resp.data):
                 if selected=="Alle" or item["category"]==selected:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
-                    if st.button(f"{item['filename']}_cloud_{idx}"):
+                    if st.button(f"CloudBild_{idx}"):
                         st.image(url, width=300)
                         st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
     except:
-        st.warning("Supabase Bilder konnten nicht geladen werden")
+        st.warning("Cloud Bilder konnten nicht geladen werden")
 
 # ------------------------
 # 3️⃣ Galerie
@@ -208,34 +199,30 @@ elif page=="Galerie":
     gallery_cat = st.selectbox("Kategorie wählen", ["Alle","Mütze","Hose","Hoodie","Schuhe"])
     cols = st.columns(3)
     i=0
-
-    # Lokale Bilder
-    for item in database:
+    for idx,item in enumerate(database):
         if gallery_cat=="Alle" or item["category"]==gallery_cat:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
                 with cols[i%3]:
-                    if st.button(f"{item['filename']}_local_{i}"):
+                    if st.button(f"Local_{idx}"):
                         st.image(path, width=300)
                         st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
                     st.image(path, caption=item["category"], use_column_width=True)
                 i+=1
-
-    # Cloud Bilder
     try:
         resp = supabase.table("items").select("*").execute()
         if resp.data:
-            for item in resp.data:
+            for idx,item in enumerate(resp.data):
                 if gallery_cat=="Alle" or item["category"]==gallery_cat:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
                     with cols[i%3]:
-                        if st.button(f"{item['filename']}_cloud_{i}"):
+                        if st.button(f"Cloud_{idx}"):
                             st.image(url, width=300)
                             st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
                         st.image(url, caption=item["category"], use_column_width=True)
                     i+=1
     except:
-        st.warning("Supabase Galerie konnte nicht geladen werden")
+        st.warning("Cloud Galerie konnte nicht geladen werden")
 
 # ------------------------
 # 4️⃣ Adminbereich
@@ -248,16 +235,12 @@ elif page=="⚙️ Einstellungen":
             st.write(f"**{item['category']}** - {item['filename']}")
             st.image(os.path.join(UPLOAD_FOLDER,item["filename"]), width=200)
             if st.button(f"🗑 Löschen_{idx}"):
-                # Lokal löschen
                 try: os.remove(os.path.join(UPLOAD_FOLDER,item["filename"]))
                 except: pass
-                # Supabase Storage löschen
                 try: supabase.storage.from_("bilder").remove([item["path"]])
                 except: pass
-                # Supabase Table löschen
                 try: supabase.table("items").delete().eq("filename",item["filename"]).execute()
                 except: pass
-                # Lokale DB löschen
                 database.remove(item)
                 with open(DB_FILE,"w") as f: json.dump(database,f)
                 st.success(f"{item['filename']} gelöscht ✅")
