@@ -18,6 +18,8 @@ LABELS_PATH = "labels.txt"
 UPLOAD_FOLDER = "uploads"
 DB_FILE = "database.json"
 
+MIN_CONFIDENCE = 0.85
+
 np.set_printoptions(suppress=True)
 
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
@@ -27,7 +29,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ------------------------
 
 SUPABASE_URL = "https://gbbwzeuhtjxxjiyzkpig.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdiYnd6ZXVodGp4eGppeXprcGlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTU5ODYsImV4cCI6MjA4ODAzMTk4Nn0.IuaU1dd1_Xu7ZTd5l2FEdUSBigOWoLOky7h4HhAA_JE"
+SUPABASE_KEY = "YOUR_SUPABASE_KEY"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -48,8 +50,7 @@ category_map = {
 
 @st.cache_resource
 def load_my_model():
-    model = load_model(MODEL_PATH, compile=False)
-    return model
+    return load_model(MODEL_PATH, compile=False)
 
 model = load_my_model()
 
@@ -80,12 +81,15 @@ def get_image_hash(image_bytes):
 def predict_image(image):
 
     size = (224, 224)
+
     image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
 
     image_array = np.asarray(image)
+
     normalized_image_array = (image_array.astype(np.float32) / 127.5) - 1
 
     data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
+
     data[0] = normalized_image_array
 
     prediction = model.predict(data)
@@ -129,6 +133,7 @@ if page == "Bild hochladen":
     if uploaded_file:
 
         image = Image.open(uploaded_file).convert("RGB")
+
         st.image(image, width=300)
 
         if st.button("Klassifizieren"):
@@ -142,8 +147,11 @@ if page == "Bild hochladen":
             # ------------------------
 
             for item in database:
+
                 if item["hash"] == image_hash:
+
                     st.error("❌ Dieses Bild wurde bereits hochgeladen.")
+
                     st.stop()
 
             # ------------------------
@@ -152,8 +160,21 @@ if page == "Bild hochladen":
 
             class_name, confidence = predict_image(image)
 
-            st.success(f"Erkannt: {class_name}")
+            st.write(f"Erkannt: {class_name}")
+
             st.write(f"Confidence: {round(confidence * 100, 2)} %")
+
+            # ------------------------
+            # MINDEST CONFIDENCE
+            # ------------------------
+
+            if confidence < MIN_CONFIDENCE:
+
+                st.error("❌ KI ist sich nicht sicher genug (<85%). Bild wird nicht gespeichert.")
+
+                st.stop()
+
+            st.success("✅ KI ist sicher genug. Bild wird gespeichert.")
 
             # ------------------------
             # Datei speichern
@@ -166,7 +187,7 @@ if page == "Bild hochladen":
             image.save(file_path)
 
             # ------------------------
-            # Lokale DB
+            # Lokale Datenbank
             # ------------------------
 
             entry = {
