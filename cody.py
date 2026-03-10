@@ -19,6 +19,7 @@ UPLOAD_FOLDER = "uploads"
 DB_FILE = "database.json"
 
 MIN_CONFIDENCE = 0.85
+CHEATCODE = "Google1#23#"
 
 np.set_printoptions(suppress=True)
 
@@ -29,12 +30,12 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 # ------------------------
 
 SUPABASE_URL = "https://gbbwzeuhtjxxjiyzkpig.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdiYnd6ZXVodGp4eGppeXprcGlnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI0NTU5ODYsImV4cCI6MjA4ODAzMTk4Nn0.IuaU1dd1_Xu7ZTd5l2FEdUSBigOWoLOky7h4HhAA_JE"
+SUPABASE_KEY = "YOUR_SUPABASE_KEY"
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 # ------------------------
-# Kategorien Mapping
+# Kategorien
 # ------------------------
 
 category_map = {
@@ -53,33 +54,30 @@ category_map = {
 # ------------------------
 
 @st.cache_resource
-def load_my_model():
+def load_model_ai():
     return load_model(MODEL_PATH, compile=False)
 
-model = load_my_model()
+model = load_model_ai()
 
-class_names = open(LABELS_PATH, "r").readlines()
+class_names = open(LABELS_PATH).readlines()
 
 # ------------------------
-# Datenbank laden
+# Lokale Datenbank
 # ------------------------
 
 if not os.path.exists(DB_FILE):
-
     with open(DB_FILE, "w") as f:
         json.dump([], f)
 
-with open(DB_FILE, "r") as f:
-
+with open(DB_FILE) as f:
     database = json.load(f)
 
 # ------------------------
-# Bild Hash
+# Hash Funktion
 # ------------------------
 
-def get_image_hash(image_bytes):
-
-    return hashlib.md5(image_bytes).hexdigest()
+def get_hash(data):
+    return hashlib.md5(data).hexdigest()
 
 # ------------------------
 # KI Vorhersage
@@ -87,25 +85,24 @@ def get_image_hash(image_bytes):
 
 def predict_image(image):
 
-    size = (224, 224)
+    size = (224,224)
 
     image = ImageOps.fit(image, size, Image.Resampling.LANCZOS)
 
     image_array = np.asarray(image)
 
-    normalized = (image_array.astype(np.float32) / 127.5) - 1
+    normalized = (image_array.astype(np.float32)/127.5)-1
 
-    data = np.ndarray(shape=(1, 224, 224, 3), dtype=np.float32)
-
+    data = np.ndarray((1,224,224,3), dtype=np.float32)
     data[0] = normalized
 
     prediction = model.predict(data)
 
     index = np.argmax(prediction)
 
-    raw_class = class_names[index].strip().lower()
+    raw = class_names[index].strip().lower()
 
-    class_name = category_map.get(raw_class, raw_class)
+    class_name = category_map.get(raw, raw)
 
     confidence = float(prediction[0][index])
 
@@ -118,238 +115,191 @@ def predict_image(image):
 st.sidebar.title("Navigation")
 
 page = st.sidebar.radio(
-    "Seite auswählen",
-    ["Bild hochladen", "Bild suchen", "Galerie"]
+    "Seite",
+    ["Bild hochladen","Bild suchen","Galerie","⚙️ Einstellungen"]
 )
 
 st.title("🧥 Fundbüro KI")
 
 # ------------------------
-# BILD HOCHLADEN
+# Upload
 # ------------------------
 
 if page == "Bild hochladen":
 
-    st.header("📤 Bild hochladen")
+    uploaded = st.file_uploader("Bild hochladen",type=["jpg","jpeg","png"])
 
-    uploaded_file = st.file_uploader(
-        "Bild auswählen",
-        type=["jpg", "jpeg", "png"]
-    )
+    if uploaded:
 
-    if uploaded_file:
+        image = Image.open(uploaded).convert("RGB")
 
-        image = Image.open(uploaded_file).convert("RGB")
-
-        st.image(image, width=300)
+        st.image(image,width=300)
 
         if st.button("Klassifizieren"):
 
-            image_bytes = uploaded_file.getvalue()
+            image_bytes = uploaded.getvalue()
 
-            image_hash = get_image_hash(image_bytes)
+            image_hash = get_hash(image_bytes)
 
-            # ------------------------
-            # DUPLIKATE CHECK
-            # ------------------------
-
+            # DUPLIKATE LOKAL
             for item in database:
-
-                if item.get("hash") == image_hash:
-
-                    st.error("❌ Dieses Bild wurde bereits hochgeladen.")
-
+                if item.get("hash")==image_hash:
+                    st.error("❌ Bild existiert bereits.")
                     st.stop()
 
-            # ------------------------
-            # KI Analyse
-            # ------------------------
+            # DUPLIKATE SUPABASE
+            try:
+                response = supabase.table("items").select("filename").eq("hash",image_hash).execute()
+                if response.data:
+                    st.error("❌ Bild existiert bereits in Supabase.")
+                    st.stop()
+            except:
+                pass
 
             class_name, confidence = predict_image(image)
 
-            st.write(f"Erkannt: {class_name}")
-            st.write(f"Confidence: {round(confidence*100,2)} %")
-
-            # ------------------------
-            # CONFIDENCE CHECK
-            # ------------------------
+            st.write("Erkannt:",class_name)
+            st.write("Confidence:",round(confidence*100,2),"%")
 
             if confidence < MIN_CONFIDENCE:
 
-                st.error("❌ KI ist sich nicht sicher genug (<85%).")
+                st.error("❌ KI ist nicht sicher genug (<85%).")
 
                 st.stop()
 
-            st.success("✅ Bild wird gespeichert")
+            unique = str(uuid.uuid4())+".png"
 
-            # ------------------------
-            # Datei speichern
-            # ------------------------
+            path = os.path.join(UPLOAD_FOLDER,unique)
 
-            unique_name = f"{uuid.uuid4()}.png"
-
-            file_path = os.path.join(UPLOAD_FOLDER, unique_name)
-
-            image.save(file_path)
-
-            # ------------------------
-            # Lokale DB
-            # ------------------------
+            image.save(path)
 
             entry = {
-                "filename": unique_name,
-                "category": class_name,
-                "confidence": confidence,
-                "hash": image_hash
+                "filename":unique,
+                "category":class_name,
+                "confidence":confidence,
+                "hash":image_hash
             }
 
             database.append(entry)
 
-            with open(DB_FILE, "w") as f:
+            with open(DB_FILE,"w") as f:
+                json.dump(database,f)
 
-                json.dump(database, f)
+            # SUPABASE
 
-            # ------------------------
-            # Supabase Upload
-            # ------------------------
-
-            category_folder = class_name.lower()
-
-            storage_path = f"{category_folder}/{unique_name}"
+            storage_path = f"{class_name.lower()}/{unique}"
 
             try:
 
                 supabase.storage.from_("bilder").upload(
                     storage_path,
                     image_bytes,
-                    {"content-type": "image/png"}
+                    {"content-type":"image/png"}
                 )
 
                 supabase.table("items").insert({
-                    "filename": unique_name,
-                    "path": storage_path,
-                    "category": class_name,
-                    "confidence": confidence
+                    "filename":unique,
+                    "path":storage_path,
+                    "category":class_name,
+                    "confidence":confidence,
+                    "hash":image_hash
                 }).execute()
 
             except:
-
                 st.warning("Supabase Upload fehlgeschlagen")
 
-            st.success("Bild gespeichert ✅")
+            st.success("✅ Bild gespeichert")
 
 # ------------------------
-# BILD SUCHEN
+# Suche
 # ------------------------
 
 elif page == "Bild suchen":
 
-    st.header("🔎 Bilder durchsuchen")
+    categories=["Alle","Mütze","Hose","Hoodie","Schuhe"]
 
-    categories = ["Alle", "Mütze", "Hose", "Hoodie", "Schuhe"]
-
-    selected = st.selectbox("Kategorie", categories)
-
-    # ------------------------
-    # LOKALE BILDER
-    # ------------------------
+    selected=st.selectbox("Kategorie",categories)
 
     for item in database:
 
-        category = category_map.get(item["category"].lower(), item["category"])
+        cat=category_map.get(item["category"].lower(),item["category"])
 
-        if selected == "Alle" or category == selected:
+        if selected=="Alle" or cat==selected:
 
-            path = os.path.join(UPLOAD_FOLDER, item["filename"])
+            path=os.path.join(UPLOAD_FOLDER,item["filename"])
 
             if os.path.exists(path):
 
-                st.image(
-                    path,
-                    caption=f"{category} ({round(item['confidence']*100,2)}%)",
-                    width=200
-                )
-
-    # ------------------------
-    # SUPABASE BILDER
-    # ------------------------
-
-    try:
-
-        response = supabase.table("items").select("*").execute()
-
-        if response.data:
-
-            for item in response.data:
-
-                category = category_map.get(item["category"].lower(), item["category"])
-
-                if selected == "Alle" or category == selected:
-
-                    public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
-
-                    st.image(
-                        public_url,
-                        caption=f"{category} ({round(item['confidence']*100,2)}%)",
-                        width=200
-                    )
-
-    except:
-
-        st.warning("Supabase Bilder konnten nicht geladen werden")
+                st.image(path,caption=cat,width=200)
 
 # ------------------------
-# GALERIE
+# Galerie
 # ------------------------
 
 elif page == "Galerie":
 
-    st.header("🖼️ Galerie")
+    cols=st.columns(3)
 
-    cols = st.columns(3)
-
-    i = 0
-
-    # LOKALE BILDER
+    i=0
 
     for item in database:
 
-        path = os.path.join(UPLOAD_FOLDER, item["filename"])
+        path=os.path.join(UPLOAD_FOLDER,item["filename"])
 
         if os.path.exists(path):
 
-            with cols[i % 3]:
+            with cols[i%3]:
 
-                st.image(
-                    path,
-                    caption=item["category"],
-                    use_column_width=True
-                )
+                st.image(path,caption=item["category"],use_column_width=True)
 
-            i += 1
+            i+=1
 
-    # SUPABASE BILDER
+# ------------------------
+# Einstellungen (Admin)
+# ------------------------
 
-    try:
+elif page == "⚙️ Einstellungen":
 
-        response = supabase.table("items").select("*").execute()
+    code=st.text_input("Cheatcode eingeben",type="password")
 
-        if response.data:
+    if code==CHEATCODE:
 
-            for item in response.data:
+        st.success("Adminmodus aktiviert")
 
-                public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
+        for item in database:
 
-                with cols[i % 3]:
+            col1,col2=st.columns([3,1])
 
-                    st.image(
-                        public_url,
-                        caption=item["category"],
-                        use_column_width=True
-                    )
+            with col1:
 
-                i += 1
+                path=os.path.join(UPLOAD_FOLDER,item["filename"])
 
-    except:
+                if os.path.exists(path):
 
-        st.warning("Supabase Galerie konnte nicht geladen werden")
+                    st.image(path,width=200)
+
+            with col2:
+
+                if st.button("🗑 Löschen",key=item["filename"]):
+
+                    try:
+                        os.remove(path)
+                    except:
+                        pass
+
+                    try:
+                        supabase.storage.from_("bilder").remove([item["path"]])
+                        supabase.table("items").delete().eq("filename",item["filename"]).execute()
+                    except:
+                        pass
+
+                    database.remove(item)
+
+                    with open(DB_FILE,"w") as f:
+                        json.dump(database,f)
+
+                    st.rerun()
+
+    else:
+
+        st.info("Adminbereich gesperrt")
