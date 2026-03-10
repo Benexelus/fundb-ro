@@ -171,23 +171,29 @@ elif page=="Bild suchen":
     selected = st.selectbox("Kategorie", categories)
     st.subheader("Lokale Bilder")
     for idx,item in enumerate(database):
-        if selected=="Alle" or item["category"]==selected:
+        if selected=="Alle" or item.get("category","") == selected:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
                 if st.button(f"Bild_{idx}"):
                     st.image(path, width=300)
-                    st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
+                    st.write(f"**Finder:** {item.get('finder_name','unbekannt')}  |  "
+                             f"**Ort:** {item.get('location','unbekannt')}  |  "
+                             f"**Fundort:** {item.get('fundort','unbekannt')}  |  "
+                             f"**Datum:** {item.get('found_at','unbekannt')}")
 
     st.subheader("Cloud Bilder")
     try:
         resp = supabase.table("items").select("*").execute()
         if resp.data:
             for idx,item in enumerate(resp.data):
-                if selected=="Alle" or item["category"]==selected:
-                    url = supabase.storage.from_("bilder").get_public_url(item["path"])
+                if selected=="Alle" or item.get("category","") == selected:
+                    url = supabase.storage.from_("bilder").get_public_url(item.get("path",""))
                     if st.button(f"CloudBild_{idx}"):
                         st.image(url, width=300)
-                        st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
+                        st.write(f"**Finder:** {item.get('finder_name','unbekannt')}  |  "
+                                 f"**Ort:** {item.get('location','unbekannt')}  |  "
+                                 f"**Fundort:** {item.get('fundort','unbekannt')}  |  "
+                                 f"**Datum:** {item.get('found_at','unbekannt')}")
     except:
         st.warning("Cloud Bilder konnten nicht geladen werden")
 
@@ -200,26 +206,32 @@ elif page=="Galerie":
     cols = st.columns(3)
     i=0
     for idx,item in enumerate(database):
-        if gallery_cat=="Alle" or item["category"]==gallery_cat:
+        if gallery_cat=="Alle" or item.get("category","") == gallery_cat:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
                 with cols[i%3]:
                     if st.button(f"Local_{idx}"):
                         st.image(path, width=300)
-                        st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
-                    st.image(path, caption=item["category"], use_column_width=True)
+                        st.write(f"**Finder:** {item.get('finder_name','unbekannt')}  |  "
+                                 f"**Ort:** {item.get('location','unbekannt')}  |  "
+                                 f"**Fundort:** {item.get('fundort','unbekannt')}  |  "
+                                 f"**Datum:** {item.get('found_at','unbekannt')}")
+                    st.image(path, caption=item.get("category",""), use_column_width=True)
                 i+=1
     try:
         resp = supabase.table("items").select("*").execute()
         if resp.data:
             for idx,item in enumerate(resp.data):
-                if gallery_cat=="Alle" or item["category"]==gallery_cat:
-                    url = supabase.storage.from_("bilder").get_public_url(item["path"])
+                if gallery_cat=="Alle" or item.get("category","") == gallery_cat:
+                    url = supabase.storage.from_("bilder").get_public_url(item.get("path",""))
                     with cols[i%3]:
                         if st.button(f"Cloud_{idx}"):
                             st.image(url, width=300)
-                            st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
-                        st.image(url, caption=item["category"], use_column_width=True)
+                            st.write(f"**Finder:** {item.get('finder_name','unbekannt')}  |  "
+                                     f"**Ort:** {item.get('location','unbekannt')}  |  "
+                                     f"**Fundort:** {item.get('fundort','unbekannt')}  |  "
+                                     f"**Datum:** {item.get('found_at','unbekannt')}")
+                        st.image(url, caption=item.get("category",""), use_column_width=True)
                     i+=1
     except:
         st.warning("Cloud Galerie konnte nicht geladen werden")
@@ -232,18 +244,18 @@ elif page=="⚙️ Einstellungen":
     if code==CHEATCODE:
         st.success("Adminmodus aktiviert")
         for idx,item in enumerate(database[:]):
-            st.write(f"**{item['category']}** - {item['filename']}")
+            st.write(f"**{item.get('category','')}** - {item.get('filename','')}")
             st.image(os.path.join(UPLOAD_FOLDER,item["filename"]), width=200)
             if st.button(f"🗑 Löschen_{idx}"):
                 try: os.remove(os.path.join(UPLOAD_FOLDER,item["filename"]))
                 except: pass
-                try: supabase.storage.from_("bilder").remove([item["path"]])
+                try: supabase.storage.from_("bilder").remove([item.get("path","")])
                 except: pass
-                try: supabase.table("items").delete().eq("filename",item["filename"]).execute()
+                try: supabase.table("items").delete().eq("filename",item.get("filename","")).execute()
                 except: pass
                 database.remove(item)
                 with open(DB_FILE,"w") as f: json.dump(database,f)
-                st.success(f"{item['filename']} gelöscht ✅")
+                st.success(f"{item.get('filename','')} gelöscht ✅")
                 st.experimental_rerun()
     else:
         st.info("Adminbereich gesperrt")
