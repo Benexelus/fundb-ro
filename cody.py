@@ -7,7 +7,7 @@ import json
 import uuid
 import hashlib
 from datetime import datetime
-
+from io import BytesIO
 from supabase import create_client
 
 # ------------------------
@@ -63,8 +63,8 @@ with open(DB_FILE, "r") as f:
 # ------------------------
 # Hash Funktion
 # ------------------------
-def get_hash(data):
-    return hashlib.md5(data).hexdigest()
+def get_hash(data_bytes):
+    return hashlib.md5(data_bytes).hexdigest()
 
 # ------------------------
 # KI Vorhersage
@@ -109,7 +109,7 @@ if page=="Bild hochladen":
         found_at = st.date_input("Datum des Fundes", datetime.today())
 
         if st.button("Klassifizieren & Speichern"):
-            image_bytes = uploaded.getvalue()
+            image_bytes = uploaded.getbuffer()  # Korrekt für Supabase
             img_hash = get_hash(image_bytes)
 
             # Duplikat prüfen
@@ -155,7 +155,7 @@ if page=="Bild hochladen":
             # Supabase speichern
             storage_path = f"{class_name}/{unique_name}"  # nur Kategorie ohne Zahl
             try:
-                supabase.storage.from_("bilder").upload(storage_path, image_bytes, {"content-type":"image/png"})
+                supabase.storage.from_("bilder").upload(storage_path, BytesIO(image_bytes), {"content-type":"image/png"})
                 supabase.table("items").insert({
                     "filename": unique_name,
                     "path": storage_path,
@@ -167,8 +167,8 @@ if page=="Bild hochladen":
                     "fundort": fundort,
                     "found_at": str(found_at)
                 }).execute()
-            except:
-                st.warning("Supabase Upload fehlgeschlagen")
+            except Exception as e:
+                st.warning(f"Supabase Upload fehlgeschlagen: {e}")
             st.success("✅ Bild erfolgreich gespeichert")
 
 # ------------------------
@@ -183,7 +183,7 @@ elif page=="Bild suchen":
         if selected=="Alle" or item["category"]==selected:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
-                if st.button(item["filename"]):
+                if st.button(f"{item['filename']}_local"):
                     st.image(path, width=300)
                     st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
 
@@ -194,7 +194,7 @@ elif page=="Bild suchen":
             for item in resp.data:
                 if selected=="Alle" or item["category"]==selected:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
-                    if st.button(item["filename"] + " (Cloud)"):
+                    if st.button(f"{item['filename']}_cloud"):
                         st.image(url, width=300)
                         st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
     except:
@@ -215,7 +215,7 @@ elif page=="Galerie":
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
                 with cols[i%3]:
-                    if st.button(item["filename"]):
+                    if st.button(f"{item['filename']}_local_{i}"):
                         st.image(path, width=300)
                         st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
                     st.image(path, caption=item["category"], use_column_width=True)
@@ -229,7 +229,7 @@ elif page=="Galerie":
                 if gallery_cat=="Alle" or item["category"]==gallery_cat:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
                     with cols[i%3]:
-                        if st.button(item["filename"] + " (Cloud)"):
+                        if st.button(f"{item['filename']}_cloud_{i}"):
                             st.image(url, width=300)
                             st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
                         st.image(url, caption=item["category"], use_column_width=True)
@@ -251,7 +251,7 @@ elif page=="⚙️ Einstellungen":
                 if os.path.exists(path):
                     st.image(path, width=200)
             with col2:
-                if st.button("🗑 Löschen", key=item["filename"]):
+                if st.button(f"delete_{item['filename']}"):
                     # Lokal löschen
                     try: os.remove(path)
                     except: pass
