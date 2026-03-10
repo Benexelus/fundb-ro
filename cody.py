@@ -109,7 +109,7 @@ if page=="Bild hochladen":
         found_at = st.date_input("Datum des Fundes", datetime.today())
 
         if st.button("Klassifizieren & Speichern"):
-            image_bytes = uploaded.getbuffer()  # Korrekt für Supabase
+            image_bytes = uploaded.getbuffer()
             img_hash = get_hash(image_bytes)
 
             # Duplikat prüfen
@@ -153,7 +153,7 @@ if page=="Bild hochladen":
                 json.dump(database,f)
 
             # Supabase speichern
-            storage_path = f"{class_name}/{unique_name}"  # nur Kategorie ohne Zahl
+            storage_path = f"{class_name}/{unique_name}"
             try:
                 supabase.storage.from_("bilder").upload(storage_path, BytesIO(image_bytes), {"content-type":"image/png"})
                 supabase.table("items").insert({
@@ -178,25 +178,25 @@ elif page=="Bild suchen":
     categories = ["Alle","Mütze","Hose","Hoodie","Schuhe"]
     selected = st.selectbox("Kategorie", categories)
 
-    # Lokale Bilder
-    for item in database:
+    st.subheader("Lokale Bilder")
+    for idx,item in enumerate(database):
         if selected=="Alle" or item["category"]==selected:
             path = os.path.join(UPLOAD_FOLDER,item["filename"])
             if os.path.exists(path):
-                if st.button(f"{item['filename']}_local"):
+                if st.button(f"{item['filename']}_local_{idx}"):
                     st.image(path, width=300)
-                    st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
+                    st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
 
-    # Supabase Bilder
+    st.subheader("Cloud Bilder")
     try:
         resp = supabase.table("items").select("*").execute()
         if resp.data:
-            for item in resp.data:
+            for idx,item in enumerate(resp.data):
                 if selected=="Alle" or item["category"]==selected:
                     url = supabase.storage.from_("bilder").get_public_url(item["path"])
-                    if st.button(f"{item['filename']}_cloud"):
+                    if st.button(f"{item['filename']}_cloud_{idx}"):
                         st.image(url, width=300)
-                        st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
+                        st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
     except:
         st.warning("Supabase Bilder konnten nicht geladen werden")
 
@@ -217,11 +217,11 @@ elif page=="Galerie":
                 with cols[i%3]:
                     if st.button(f"{item['filename']}_local_{i}"):
                         st.image(path, width=300)
-                        st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
+                        st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
                     st.image(path, caption=item["category"], use_column_width=True)
                 i+=1
 
-    # Supabase Bilder
+    # Cloud Bilder
     try:
         resp = supabase.table("items").select("*").execute()
         if resp.data:
@@ -231,7 +231,7 @@ elif page=="Galerie":
                     with cols[i%3]:
                         if st.button(f"{item['filename']}_cloud_{i}"):
                             st.image(url, width=300)
-                            st.write(f"Finder: {item['finder_name']}, Ort: {item['location']}, Fundort: {item['fundort']}, Datum: {item['found_at']}")
+                            st.write(f"**Finder:** {item['finder_name']}  |  **Ort:** {item['location']}  |  **Fundort:** {item['fundort']}  |  **Datum:** {item['found_at']}")
                         st.image(url, caption=item["category"], use_column_width=True)
                     i+=1
     except:
@@ -244,27 +244,23 @@ elif page=="⚙️ Einstellungen":
     code = st.text_input("Cheatcode", type="password")
     if code==CHEATCODE:
         st.success("Adminmodus aktiviert")
-        for item in database[:]:
-            col1,col2 = st.columns([3,1])
-            with col1:
-                path = os.path.join(UPLOAD_FOLDER,item["filename"])
-                if os.path.exists(path):
-                    st.image(path, width=200)
-            with col2:
-                if st.button(f"delete_{item['filename']}"):
-                    # Lokal löschen
-                    try: os.remove(path)
-                    except: pass
-                    # Supabase Storage löschen
-                    try: supabase.storage.from_("bilder").remove([item["path"]])
-                    except: pass
-                    # Supabase Table löschen
-                    try: supabase.table("items").delete().eq("filename",item["filename"]).execute()
-                    except: pass
-                    # Lokale DB löschen
-                    database.remove(item)
-                    with open(DB_FILE,"w") as f: json.dump(database,f)
-                    st.success(f"{item['filename']} gelöscht ✅")
-                    st.experimental_rerun()
+        for idx,item in enumerate(database[:]):
+            st.write(f"**{item['category']}** - {item['filename']}")
+            st.image(os.path.join(UPLOAD_FOLDER,item["filename"]), width=200)
+            if st.button(f"🗑 Löschen_{idx}"):
+                # Lokal löschen
+                try: os.remove(os.path.join(UPLOAD_FOLDER,item["filename"]))
+                except: pass
+                # Supabase Storage löschen
+                try: supabase.storage.from_("bilder").remove([item["path"]])
+                except: pass
+                # Supabase Table löschen
+                try: supabase.table("items").delete().eq("filename",item["filename"]).execute()
+                except: pass
+                # Lokale DB löschen
+                database.remove(item)
+                with open(DB_FILE,"w") as f: json.dump(database,f)
+                st.success(f"{item['filename']} gelöscht ✅")
+                st.experimental_rerun()
     else:
         st.info("Adminbereich gesperrt")
