@@ -251,26 +251,42 @@ elif page == "⚙️ Einstellungen":
     code = st.text_input("Cheatcode eingeben", type="password")
     if code == CHEATCODE:
         st.success("Adminmodus aktiviert")
-        for item in database:
+
+        for item in database[:]:  # [:] damit wir während Iteration löschen können
             col1, col2 = st.columns([3,1])
             with col1:
-                path = os.path.join(UPLOAD_FOLDER,item["filename"])
+                path = os.path.join(UPLOAD_FOLDER, item["filename"])
                 if os.path.exists(path):
                     st.image(path, width=200)
             with col2:
                 if st.button("🗑 Löschen", key=item["filename"]):
+                    # 1️⃣ Lösche lokal
                     try:
-                        os.remove(path)
-                    except:
-                        pass
+                        if os.path.exists(path):
+                            os.remove(path)
+                    except Exception as e:
+                        st.warning(f"Lokal löschen fehlgeschlagen: {e}")
+
+                    # 2️⃣ Lösche aus Supabase Storage
                     try:
                         supabase.storage.from_("bilder").remove([item["path"]])
-                        supabase.table("items").delete().eq("filename",item["filename"]).execute()
-                    except:
-                        pass
+                    except Exception as e:
+                        st.warning(f"Supabase Storage löschen fehlgeschlagen: {e}")
+
+                    # 3️⃣ Lösche aus Supabase Table
+                    try:
+                        supabase.table("items").delete().eq("filename", item["filename"]).execute()
+                    except Exception as e:
+                        st.warning(f"Supabase Table löschen fehlgeschlagen: {e}")
+
+                    # 4️⃣ Lösche aus lokaler DB
                     database.remove(item)
-                    with open(DB_FILE,"w") as f:
-                        json.dump(database,f)
-                    st.rerun()
+                    with open(DB_FILE, "w") as f:
+                        json.dump(database, f)
+
+                    # 5️⃣ Aktualisiere sofort die App (Galerie, Suche, Upload)
+                    st.success(f"{item['filename']} erfolgreich gelöscht ✅")
+                    st.experimental_rerun()
+
     else:
         st.info("Adminbereich gesperrt")
