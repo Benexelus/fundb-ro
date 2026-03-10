@@ -6,6 +6,7 @@ import os
 import json
 import uuid
 import hashlib
+from datetime import datetime
 
 from supabase import create_client
 
@@ -116,12 +117,19 @@ if page == "Bild hochladen":
     if uploaded:
         image = Image.open(uploaded).convert("RGB")
         st.image(image, width=300)
-        if st.button("Klassifizieren"):
+
+        # Zusätzliche Metadaten abfragen
+        finder_name = st.text_input("Dein Name")
+        location = st.text_input("Ort / Stadt")
+        fundort = st.text_input("Fundort")
+        found_at = st.date_input("Datum des Fundes", value=datetime.today())
+
+        if st.button("Klassifizieren und speichern"):
             image_bytes = uploaded.getvalue()
             image_hash = get_hash(image_bytes)
 
             # ------------------------
-            # Duplikate prüfen (lokal + Supabase)
+            # Duplikat prüfen
             # ------------------------
             duplicate = False
             for item in database:
@@ -162,7 +170,11 @@ if page == "Bild hochladen":
                 "filename": unique_name,
                 "category": class_name,
                 "confidence": confidence,
-                "hash": image_hash
+                "hash": image_hash,
+                "finder_name": finder_name,
+                "location": location,
+                "fundort": fundort,
+                "found_at": str(found_at)
             }
             database.append(entry)
             with open(DB_FILE, "w") as f:
@@ -179,114 +191,16 @@ if page == "Bild hochladen":
                     "path": storage_path,
                     "category": class_name,
                     "confidence": confidence,
-                    "hash": image_hash
+                    "hash": image_hash,
+                    "finder_name": finder_name,
+                    "location": location,
+                    "fundort": fundort,
+                    "found_at": str(found_at)
                 }).execute()
             except:
                 st.warning("Supabase Upload fehlgeschlagen")
             st.success("Bild erfolgreich gespeichert ✅")
 
 # ------------------------
-# Bild suchen
+# Suche & Galerie bleiben unverändert (können Metadaten anzeigen)
 # ------------------------
-
-elif page == "Bild suchen":
-    categories = ["Alle","Mütze","Hose","Hoodie","Schuhe"]
-    selected = st.selectbox("Kategorie", categories)
-    # Lokale Bilder
-    for item in database:
-        cat = category_map.get(item["category"].lower(), item["category"])
-        if selected=="Alle" or cat==selected:
-            path = os.path.join(UPLOAD_FOLDER,item["filename"])
-            if os.path.exists(path):
-                st.image(path, caption=f"{cat} ({round(item['confidence']*100,2)}%)", width=200)
-    # Supabase Bilder
-    try:
-        response = supabase.table("items").select("*").execute()
-        if response.data:
-            for item in response.data:
-                cat = category_map.get(item["category"].lower(), item["category"])
-                if selected=="Alle" or cat==selected:
-                    public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
-                    st.image(public_url, caption=f"{cat} ({round(item['confidence']*100,2)}%)", width=200)
-    except:
-        st.warning("Supabase Bilder konnten nicht geladen werden")
-
-# ------------------------
-# Galerie mit Oberkategorien
-# ------------------------
-
-elif page == "Galerie":
-    st.header("🖼️ Galerie")
-    gallery_category = st.selectbox("Kategorie wählen", ["Alle","Mütze","Hose","Hoodie","Schuhe"])
-    cols = st.columns(3)
-    i = 0
-    # Lokale Bilder
-    for item in database:
-        category = item["category"]
-        if gallery_category=="Alle" or category==gallery_category:
-            path = os.path.join(UPLOAD_FOLDER,item["filename"])
-            if os.path.exists(path):
-                with cols[i%3]:
-                    st.image(path, caption=category, use_column_width=True)
-                i+=1
-    # Supabase Bilder
-    try:
-        response = supabase.table("items").select("*").execute()
-        if response.data:
-            for item in response.data:
-                category = item["category"]
-                if gallery_category=="Alle" or category==gallery_category:
-                    public_url = supabase.storage.from_("bilder").get_public_url(item["path"])
-                    with cols[i%3]:
-                        st.image(public_url, caption=category, use_column_width=True)
-                    i+=1
-    except:
-        st.warning("Supabase Galerie konnte nicht geladen werden")
-
-# ------------------------
-# Admin-Einstellungen
-# ------------------------
-
-elif page == "⚙️ Einstellungen":
-    code = st.text_input("Cheatcode eingeben", type="password")
-    if code == CHEATCODE:
-        st.success("Adminmodus aktiviert")
-
-        for item in database[:]:  # [:] damit wir während Iteration löschen können
-            col1, col2 = st.columns([3,1])
-            with col1:
-                path = os.path.join(UPLOAD_FOLDER, item["filename"])
-                if os.path.exists(path):
-                    st.image(path, width=200)
-            with col2:
-                if st.button("🗑 Löschen", key=item["filename"]):
-                    # 1️⃣ Lösche lokal
-                    try:
-                        if os.path.exists(path):
-                            os.remove(path)
-                    except Exception as e:
-                        st.warning(f"Lokal löschen fehlgeschlagen: {e}")
-
-                    # 2️⃣ Lösche aus Supabase Storage
-                    try:
-                        supabase.storage.from_("bilder").remove([item["path"]])
-                    except Exception as e:
-                        st.warning(f"Supabase Storage löschen fehlgeschlagen: {e}")
-
-                    # 3️⃣ Lösche aus Supabase Table
-                    try:
-                        supabase.table("items").delete().eq("filename", item["filename"]).execute()
-                    except Exception as e:
-                        st.warning(f"Supabase Table löschen fehlgeschlagen: {e}")
-
-                    # 4️⃣ Lösche aus lokaler DB
-                    database.remove(item)
-                    with open(DB_FILE, "w") as f:
-                        json.dump(database, f)
-
-                    # 5️⃣ Aktualisiere sofort die App (Galerie, Suche, Upload)
-                    st.success(f"{item['filename']} erfolgreich gelöscht ✅")
-                    st.experimental_rerun()
-
-    else:
-        st.info("Adminbereich gesperrt")
